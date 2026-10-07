@@ -16,6 +16,7 @@
 #include "core/backends/icom/IcomAudio.h"
 #include "core/backends/icom/IcomProtocol.h"
 #include "core/backends/icom/IcomStream.h"
+#include "core/backends/icom/IcomUsbTransport.h"
 
 class QTimer;
 
@@ -35,6 +36,7 @@ public:
     static constexpr quint16 kDefaultTxBufferMs = 300;
 
     struct Params {
+        std::optional<IcomUsbTransport::Params> usb;
         QHostAddress host;
         quint16 controlPort = kControlPort;
         quint16 serialPort  = kSerialPort;
@@ -74,6 +76,7 @@ public:
     Q_INVOKABLE void stop();
 
     [[nodiscard]] bool isConnected() const noexcept { return m_connected; }
+    [[nodiscard]] bool isUsb() const noexcept { return m_params.usb.has_value(); }
     [[nodiscard]] std::uint8_t advertisedCivAddress() const noexcept { return m_advertisedCivAddress; }
     [[nodiscard]] QString deviceName() const { return m_deviceName; }
     [[nodiscard]] const RadioId& radioId() const noexcept { return m_radioId; }
@@ -146,6 +149,7 @@ private:
     void openMediaStreams();
 
     Params m_params;
+    std::unique_ptr<IcomUsbTransport> m_usb;
 
     IcomStream* m_control = nullptr;
     IcomStream* m_serial  = nullptr;

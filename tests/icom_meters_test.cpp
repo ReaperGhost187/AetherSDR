@@ -439,8 +439,9 @@ static void testModelTable()
     // up a command shape nobody checked on that radio. Naming each address here
     // keeps that guard: the flag cannot go true without a deliberate edit to
     // this list, and the comment beside it has to say what the evidence was.
-    static const std::array<std::uint8_t, 3> kAttestedVfoMode{
+    static const std::array<std::uint8_t, 4> kAttestedVfoMode{
         0xA4,  // IC-705     — its own CI-V Reference Guide documents 26 00
+        0x94,  // Original IC-7300: Full Manual 12a documents 26 00
         0xB6,  // IC-7300MK2 — likewise, from its own guide
         0xA2,  // IC-9700    — measured on a live radio, 2026-08-14: 26 00 read
                //              answered 26 00 05 00 01, the same three-byte
@@ -490,8 +491,8 @@ static void testCapabilityProfiles()
           "IC-705, IC-7300MK2 and IC-9700 are the intentional bring-up profiles");
     check(std::ranges::count_if(knownModels(), [](const IcomModel& model) {
               return profileFor(model).supportedBringup;
-          }) == 3,
-          "exactly three known models have supported command profiles");
+          }) == 4,
+          "four known models have supported command profiles");
 
     check(p705.setMenu.voxDelayItem == 359 && p705.setMenu.civTransceiveItem == 131,
           "IC-705 owns VOX delay 0359 and CI-V Transceive 0131");
@@ -499,9 +500,9 @@ static void testCapabilityProfiles()
           "IC-7300MK2 owns the distinct VOX delay 0267 and Transceive 0089");
     check(p9700.modulation && p9700.modulation->phoneLevelFollowsNetworkInput,
           "IC-9700 owns its verified LAN modulation-level profile");
-    check(p9700.setMenu.voxDelayItem < 0 && p9700.setMenu.civTransceiveItem < 0
-              && !p9700.txBandwidth,
-          "IC-9700 borrows no unverified SET-menu or TX-bandwidth map");
+    check(p9700.setMenu.voxDelayItem == 330 && p9700.setMenu.civTransceiveItem == 127
+              && p9700.txBandwidth && p9700.txBandwidth->dataItem == 20,
+          "IC-9700 uses its own documented SET-menu and TX-bandwidth map");
     check(p705.gps && p705.gps->ntpEnabledItem == 167
               && p705.gps->ntpServerItem == 168
               && p705.gps->timeCorrectItem == 169 && p705.gps->hasNtpAccess,
@@ -561,9 +562,9 @@ static void testCapabilityProfiles()
               && controlSupported(modelMk2, pMk2, *dataMode),
           "all three profiles attest selected-VFO mode/DATA/filter");
     check(txBandwidth && controlSupported(model705, p705, *txBandwidth)
-              && !controlSupported(model9700, p9700, *txBandwidth)
+              && controlSupported(model9700, p9700, *txBandwidth)
               && controlSupported(modelMk2, pMk2, *txBandwidth),
-          "effective registry refuses to borrow TX bandwidth on IC-9700");
+          "effective registry enables independently documented IC-9700 TX bandwidth");
     check(dtcs && dtcs->wiring == Wiring::Both && dtcs->encoding == Encoding::Dtcs
               && dtcs->seamVerb == "setSliceFmDtcs"
               && controlSupported(model9700, p9700, *dtcs)
@@ -693,7 +694,7 @@ static void testModeList()
     // model's own guide for gets NOTHING, not the IC-705's list.
     const IcomModel* ic9700 = modelForId(0xA2);
     const IcomModel* mk2 = modelForId(0xB6);
-    check(ic9700 && modeListFor(*ic9700).empty(), "another model gets no borrowed list");
+    check(ic9700 && !modeListFor(*ic9700).empty(), "IC-9700 has its documented desktop modes");
     check(mk2 && modeListFor(*mk2).empty(), "including the verified IC-7300MK2");
     check(modeListFor(unknownModel()).empty(), "and nor does an unknown radio");
 }

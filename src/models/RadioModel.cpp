@@ -2592,6 +2592,9 @@ RadioModel::RadioModel(QObject* parent)
                 // initial connect gives a session that authenticates once and
                 // then fails every automatic retry.
                 populateFamilyParams(req, m_family);
+                for (auto it = m_lastInfo.connectionParams.cbegin(); it != m_lastInfo.connectionParams.cend(); ++it) {
+                    req.params.insert(it.key(), it.value());
+                }
                 handRestoredStateToBackend();
                 m_backend->connectRadio(req);
             }
@@ -3715,6 +3718,9 @@ void RadioModel::connectToRadio(const RadioInfo& info)
         req.serial = info.serial;
         req.serialIdentity = info.serialIdentity;
         populateFamilyParams(req, info.family);
+        for (auto it = info.connectionParams.cbegin(); it != info.connectionParams.cend(); ++it) {
+            req.params.insert(it.key(), it.value());
+        }
         handRestoredStateToBackend();
         m_backend->connectRadio(req);
     }

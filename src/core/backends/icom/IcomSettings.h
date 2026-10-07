@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QByteArray>
 
 #include <cstdint>
 
@@ -17,6 +18,11 @@ namespace AetherSDR {
 // the password with a reversible substitution table.
 class IcomSettings {
 public:
+    static QString usbPort();
+    static QByteArray usbInputDeviceId();
+    static QByteArray usbOutputDeviceId();
+    static void setUsbConnection(const QString& port, const QByteArray& input,
+                                 const QByteArray& output);
     // The operator's network username on the radio. NOT a secret — the radio
     // pairs it with a password and the username alone grants nothing.
     static QString username();

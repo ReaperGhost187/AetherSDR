@@ -54,6 +54,21 @@ bool IcomSession::start(const Params& params)
 {
     stop();
     m_params = params;
+    if (params.usb) {
+        m_usb = std::make_unique<IcomUsbTransport>();
+        connect(m_usb.get(), &IcomUsbTransport::civFrameReady, this, &IcomSession::civFrameReady);
+        connect(m_usb.get(), &IcomUsbTransport::audioReady, this, &IcomSession::audioReady);
+        connect(m_usb.get(), &IcomUsbTransport::failed, this, &IcomSession::fail);
+        QString error;
+        if (!m_usb->start(*params.usb, error)) {
+            fail(error);
+            return false;
+        }
+        m_deviceName = QStringLiteral("Icom USB (%1)").arg(params.usb->portName);
+        m_connected = true;
+        emit connected(m_deviceName);
+        return true;
+    }
     m_tokenRequestId = params.tokenRequestId != 0
         ? params.tokenRequestId
         : static_cast<quint16>(QRandomGenerator::global()->bounded(1, 0x10000));
@@ -124,6 +139,10 @@ bool IcomSession::start(const Params& params)
 
 void IcomSession::stop()
 {
+    if (m_usb) {
+        m_usb->stop();
+        m_usb.reset();
+    }
     for (QTimer** t : {&m_tokenTimer, &m_txTimer, &m_civTimeout, &m_civOpenRetry}) {
         if (*t) {
             (*t)->stop();
@@ -699,6 +718,7 @@ void IcomSession::onTxPump()
 
 int IcomSession::txAudioDrainMs() const
 {
+    if (m_usb) { return m_usb->txAudioDrainMs(); }
     if (!m_params.enableTx)
         return 0;
     // Every codec's frame is 20 ms of audio, so pending bytes convert through
@@ -713,6 +733,10 @@ int IcomSession::txAudioDrainMs() const
 void IcomSession::sendCiv(std::span<const std::uint8_t> frame,
                           const std::optional<TxCoordinator::Command>& command)
 {
+    if (m_usb) {
+        m_usb->sendCiv(frame, command);
+        return;
+    }
     if (!m_serial || !m_serial->isReady())
         return;
     if (command) {
@@ -741,6 +765,10 @@ bool IcomSession::reopenCivPipe()
 
 void IcomSession::sendAudio(std::span<const float> mono, const TxCoordinator::Context& context)
 {
+    if (m_usb) {
+        m_usb->sendAudio(mono, context);
+        return;
+    }
     if (!m_params.enableTx || !context.permitsDispatch(TxCoordinator::monotonicMs())) {
         return;
     }
@@ -753,12 +781,14 @@ void IcomSession::sendAudio(std::span<const float> mono, const TxCoordinator::Co
 
 std::size_t IcomSession::padTxAudioToFrame(const TxCoordinator::Context& context)
 {
+    if (m_usb) { return 0; } // USB PCM is not packetized into RS-BA1 frames.
     return m_params.enableTx && context.sameContext(m_txContext)
         && context.permitsDispatch(TxCoordinator::monotonicMs()) ? m_tx.padToFrame() : 0;
 }
 
 void IcomSession::flushTxAudio()
 {
+    if (m_usb) { m_usb->flushTxAudio(); }
     m_tx.flush();
     m_txContext = {};
     m_txPumpClock.invalidate();
@@ -768,6 +798,11 @@ void IcomSession::flushTxAudio()
 IcomSession::Stats IcomSession::stats() const
 {
     Stats s;
+    if (m_usb) {
+        s.serial = m_usb->serialStats();
+        s.audio = m_usb->audioStats();
+        return s;
+    }
     if (m_control) s.control = m_control->counters();
     if (m_serial)  s.serial  = m_serial->counters();
     if (m_audio)   s.audio   = m_audio->counters();
@@ -776,6 +811,11 @@ IcomSession::Stats IcomSession::stats() const
 
 QVariantMap IcomSession::leaseDiagnostics() const
 {
+    if (isUsb()) {
+        return {{QStringLiteral("transport"), QStringLiteral("usb")},
+                {QStringLiteral("connected"), m_connected},
+                {QStringLiteral("leaseRequired"), false}};
+    }
     QVariantMap out;
     const qint64 ageMs = m_lastAuthOkMs > 0
         ? QDateTime::currentMSecsSinceEpoch() - m_lastAuthOkMs : -1;

@@ -35,6 +35,11 @@ constexpr Layout layoutFor(MemoryDialect dialect)
     case MemoryDialect::Ic7300Mk2:
         return {2, 0, -1, -1, 1, 99, 33, 47, 2, 3, 8, 9, 10, 10,
                 11, 14, -1, -1};
+    case MemoryDialect::Ic7300:
+        // IC-7300 Full Manual 12a, p.19-11: two 14-byte VFO blocks
+        // precede the 10-character name, even with split disabled.
+        return {2, 0, -1, -1, 1, 99, 41, 41, 2, 3, 8, 9, 10, 10,
+                11, 14, -1, -1};
     case MemoryDialect::Ic9700:
         return {3, 1, 1, 3, 1, 99, 67, 114, 3, 4, 9, 10, 11, 12,
                 14, 17, 20, 24};
@@ -166,18 +171,19 @@ std::optional<IcomMemoryChannel> decodeMemory(
     // below, is therefore the authority; treating the 47-byte reply length as
     // Split made every live channel display-only and prevented spot recall.
     // The older dialects retain their established variable-length contract.
-    memory.split = dialect != MemoryDialect::Ic7300Mk2
+    const bool desktop = dialect == MemoryDialect::Ic7300Mk2 || dialect == MemoryDialect::Ic7300;
+    memory.split = !desktop
         && payload.size() == static_cast<std::size_t>(layout.splitBytes);
     const std::optional<std::uint64_t> frequency = decodeFreqExact(
         payload.subspan(static_cast<std::size_t>(layout.frequencyOffset), kFreqBytes),
         kFreqBytes);
     const std::uint8_t dataByte = payload[static_cast<std::size_t>(layout.dataOffset)];
     const int dataNibble = (dataByte >> 4) & 0x0f;
-    if ((dialect == MemoryDialect::Ic7300Mk2 && dataNibble > 1)
-        || (dialect != MemoryDialect::Ic7300Mk2 && dataByte > 1)) {
+    if ((desktop && dataNibble > 1)
+        || (!desktop && dataByte > 1)) {
         return std::nullopt;
     }
-    const bool dataMode = dialect == MemoryDialect::Ic7300Mk2
+    const bool dataMode = desktop
         ? dataNibble != 0 : dataByte == 0x01;
     const DecodedMode mode = decodeMode(
         payload[static_cast<std::size_t>(layout.modeOffset)], dataMode);
@@ -189,10 +195,10 @@ std::optional<IcomMemoryChannel> decodeMemory(
     }
 
     const std::uint8_t accessByte = payload[static_cast<std::size_t>(layout.accessOffset)];
-    const int duplex = dialect == MemoryDialect::Ic7300Mk2 ? 0 : (accessByte >> 4) & 0x0f;
+    const int duplex = desktop ? 0 : (accessByte >> 4) & 0x0f;
     const int toneMode = accessByte & 0x0f;
     if (duplex > 3 || toneMode > 3
-        || (dialect == MemoryDialect::Ic7300Mk2 && toneMode > 2)) {
+        || (desktop && toneMode > 2)) {
         return std::nullopt;
     }
     const std::optional<double> txTone = decodeRepeaterToneHz(
@@ -243,7 +249,7 @@ std::optional<IcomMemoryChannel> decodeMemory(
         memory.dtcsRxReverse = dtcs->rxReverse;
         memory.offsetHz = *offset;
     }
-    memory.name = decodeName(payload.last(16));
+    memory.name = decodeName(payload.last(dialect == MemoryDialect::Ic7300 ? 10 : 16));
     return memory;
 }
 

@@ -167,6 +167,7 @@ private slots:
     void onTuneAudioTick();
 
 private:
+    [[nodiscard]] std::optional<ModulationProfile> sessionModulationProfile() const;
     // Focused access for the generation-gate regression test.  The test must
     // inject a frame carrying an obsolete session generation after the backend
     // has advanced to a replacement session; exercising only the public UDP
@@ -438,6 +439,7 @@ private:
 
     QString m_deviceName;
     QString m_memoryImportSource;
+    QString m_usbImportIdentity;
     std::uint64_t m_frequencyHz = 0;
     // Bumped by every operator tune. A deferred frequency re-assert captures
     // it and fires only if no newer tune arrived in the one-turn gap, so a
@@ -540,6 +542,8 @@ private:
     bool    m_xitOn = false;
     int     m_ritOffsetHz = 0;
     std::optional<bool> m_repeaterToneOn;
+    std::optional<bool> m_toneSquelchOn;
+    void publishSeparateCtcssState();
     std::optional<double> m_repeaterToneHz;
     std::optional<icom::RepeaterOffsetDirection> m_repeaterOffsetDirection;
     std::optional<int> m_repeaterOffsetHz;

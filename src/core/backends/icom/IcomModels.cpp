@@ -85,7 +85,7 @@ constexpr std::array<IcomModel, 7> kModels{{
         kFreqBytes,
         true, 100.0,
         30'000ULL, 74'800'000ULL,
-        false,
+        true,
         /*bands*/ "",
     },
     {
@@ -177,6 +177,32 @@ constexpr std::array<ModulationInputChoice, 6> kIc7300Mk2ModInputs{{
     {0x05, "LAN",     ModSourceNetwork},
 }};
 
+// IC-7300 Full Manual, revision 12a, pp. 19-5 and 19-9. USB is 03;
+// the MK2's USB value and SET-menu addresses are different.
+constexpr std::array<ModulationInputChoice, 5> kIc7300ModInputs{{
+    {0x00, "MIC", ModSourceMic},
+    {0x01, "ACC", ModSourceAccessory},
+    {0x02, "MIC+ACC", ModSourceMic | ModSourceAccessory},
+    {0x03, "USB", ModSourceUsb},
+    {0x04, "MIC+USB", ModSourceMic | ModSourceUsb},
+}};
+constexpr std::array<std::string_view, 9> kDesktopModes{
+    "USB", "LSB", "CW", "CWL", "AM", "FM", "DFM", "DIGU", "DIGL"};
+constexpr std::array<FeatureEvidence, 12> kIc7300Evidence{{
+    {IcomFeature::Core, EvidenceKind::OfficialGuide, "IC-7300 Full Manual 12a, chapter 19"},
+    {IcomFeature::Scope, EvidenceKind::OfficialGuide, "IC-7300 Full Manual 12a, 27, p.19-14; 475 pixels in product specification"},
+    {IcomFeature::VfoMode, EvidenceKind::OfficialGuide, "IC-7300 Full Manual 12a, 26 00/01"},
+    {IcomFeature::ModulationInput, EvidenceKind::OfficialGuide, "IC-7300 Full Manual 12a, SET 0064-0067"},
+    {IcomFeature::TxBandwidth, EvidenceKind::OfficialGuide, "IC-7300 Full Manual 12a, SET 0014-0016 and 0196"},
+    {IcomFeature::CwTextKeyer, EvidenceKind::OfficialGuide, "IC-7300 Full Manual 12a, command 17"},
+    {IcomFeature::FmRepeaterBasic, EvidenceKind::OfficialGuide, "IC-7300 Full Manual 12a, 16 42/43 and 1B 00/01"},
+    {IcomFeature::FmRepeaterCtcssRx, EvidenceKind::OfficialGuide, "IC-7300 Full Manual 12a, 16 43 and 1B 00/01"},
+    {IcomFeature::DialLock, EvidenceKind::OfficialGuide, "IC-7300 Full Manual 12a, 16 50"},
+    {IcomFeature::TxFrequencyCheck, EvidenceKind::OfficialGuide, "IC-7300 Full Manual 12a, 1C 02/03"},
+    {IcomFeature::MemoryChannels, EvidenceKind::OfficialGuide, "IC-7300 Full Manual 12a, 1A 00, p.19-11"},
+    {IcomFeature::AntennaTuner, EvidenceKind::OfficialGuide, "IC-7300 Full Manual 12a, 1C 01"},
+}};
+
 constexpr std::array<std::string_view, 3> kHfPreampLabels{
     "OFF", "P.AMP1", "P.AMP2"};
 // Publish only the IC-9700's internal preamp through the shared front-end
@@ -198,6 +224,8 @@ constexpr std::array<std::string_view, 1> kIc705ReceiveOnlyModes{"WFM"};
 constexpr std::array<std::string_view, 8> kExtendedFmAccessModes{
     "off", "ctcss_tx", "ctcss_rx", "ctcss_txrx",
     "dtcs_tx", "dtcs_txrx", "ctcss_tx_dtcs_rx", "dtcs_tx_ctcss_rx"};
+constexpr std::array<std::string_view, 3> kIc7300FmAccessModes{
+    "off", "ctcss_tx", "ctcss_txrx"};
 constexpr std::array<std::string_view, 4> kToneSquelchFmAccessModes{
     "off", "ctcss_tx", "ctcss_rx", "ctcss_txrx"};
 
@@ -270,7 +298,11 @@ constexpr std::array<FeatureEvidence, 15> kIc7300Mk2Evidence{{
      "IC-7300MK2 CI-V Reference Guide, command 1C 01"},
 }};
 
-constexpr std::array<FeatureEvidence, 14> kIc9700Evidence{{
+constexpr std::array<FeatureEvidence, 16> kIc9700Evidence{{
+    {IcomFeature::TxBandwidth, EvidenceKind::OfficialGuide,
+     "IC-9700 CI-V Reference Guide 2021, SET 0017-0020, p.16"},
+    {IcomFeature::CwTextKeyer, EvidenceKind::OfficialGuide,
+     "IC-9700 CI-V Reference Guide 2021, command 17"},
     {IcomFeature::Core, EvidenceKind::OfficialGuideAndLiveHardware,
      "IC-9700 CI-V Reference Guide 2019; live IC-9700 trace"},
     {IcomFeature::Scope, EvidenceKind::LiveHardware,
@@ -575,9 +607,12 @@ const IcomModelProfile& profileFor(const IcomModel& model) noexcept
         // DATA OFF MOD and DATA MOD are 0115/0116, with LAN encoded as 05.
         .modulation = ModulationProfile{113, 112, 114, 115, 116, 0x05, 0x00,
                                         kIc9700ModInputs, true},
+        .txBandwidth = TxBandwidthProfile{kTbwLowIc705, kTbwHigh, 17, 18, 19, 20},
         .fmRepeater = FmRepeaterProfile{FmRepeaterDialect::Extended,
                                        kExtendedFmAccessModes,
                                        true, true, true, true, true, true},
+        .cwTextKeyer = CwTextKeyerProfile{},
+        .setMenu = SetMenuProfile{330, 127},
         .scope = ScopeCommandProfile{true, false, false, false, false},
         .meters = MeterCalibrationProfile{
             .calibration = MeterCalibration::Ic9700,
@@ -594,6 +629,33 @@ const IcomModelProfile& profileFor(const IcomModel& model) noexcept
         // IC-9700 CI-V Reference Guide 2019, printed p. 8.
         .networkConfiguration = NetworkConfigurationProfile{139, 140, 141, 144},
         .preampLabels = kIc9700PreampLabels,
+        .modes = kDesktopModes,
+    };
+    static const IcomModelProfile kIc7300Profile{
+        .supportedBringup = true,
+        .hasModeIndependentSquelch = true,
+        .pollCwSquelchAndTxBandwidth = true,
+        .speechProcessorLevelMaximum = 100,
+        .speechProcessorLabel = "COMP",
+        .guideRevision = "IC-7300 Full Manual 12a, chapter 19",
+        .features = kIc7300Evidence,
+        .modulation = ModulationProfile{65, 64, -1, 66, 67, 0x03, 0x00,
+                                        kIc7300ModInputs},
+        .txBandwidth = TxBandwidthProfile{kTbwLowIc705, kTbwHigh, 14, 15, 16, 196},
+        .fmRepeater = FmRepeaterProfile{FmRepeaterDialect::Basic,
+                                       kIc7300FmAccessModes,
+                                       false, true, true, false, true, true, true},
+        .cwTextKeyer = CwTextKeyerProfile{},
+        .setMenu = SetMenuProfile{191, 71},
+        .scope = ScopeCommandProfile{true, true, true, true, true},
+        .meters = MeterCalibrationProfile{
+            .calibration = MeterCalibration::Ic7300,
+            .currentFullScaleAmps = 25.0,
+        },
+        .memory = MemoryProfile{MemoryDialect::Ic7300, -1, -1, 1, 99, false, "Group"},
+        .preampLabels = kHfPreampLabels,
+        .attenuatorSteps = kHfAttenuatorSteps,
+        .modes = kDesktopModes,
     };
     // MK2 S-meter squelch measured against steady carriers on the estimated
     // pan axis (#6180): -195.1 + 0.584 * raw, with raw = ceil(2.55 * level).
@@ -656,7 +718,8 @@ const IcomModelProfile& profileFor(const IcomModel& model) noexcept
         return kIc9700Profile;
     case 0xB6:
         return kIc7300Mk2Profile;
-    case 0x94: // IC-7300
+    case 0x94:
+        return kIc7300Profile;
     case 0x98: // IC-7610
     case 0x8E: // IC-7850 / IC-7851
         return kTunerOnlyProfile;

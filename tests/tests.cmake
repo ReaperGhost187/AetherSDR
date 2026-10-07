@@ -1205,6 +1205,21 @@ add_executable(icom_scope_test
 target_include_directories(icom_scope_test PRIVATE src)
 add_test(NAME icom_scope_test COMMAND icom_scope_test)
 
+add_executable(icom_usb_models_test
+    tests/icom_usb_models_test.cpp
+    src/core/backends/icom/IcomModels.cpp
+    src/core/backends/icom/IcomMemoryCodec.cpp
+    src/core/backends/icom/IcomMeters.cpp
+    src/core/backends/icom/CivCodec.cpp)
+target_include_directories(icom_usb_models_test PRIVATE src)
+add_test(NAME icom_usb_models_test COMMAND icom_usb_models_test)
+
+# No port, socket, or sound device opens; parser/PCM and missing-config refusal.
+add_executable(icom_usb_transport_test tests/icom_usb_transport_test.cpp)
+target_include_directories(icom_usb_transport_test PRIVATE src)
+target_link_libraries(icom_usb_transport_test PRIVATE aethercore Qt6::Core Qt6::Multimedia)
+add_test(NAME icom_usb_transport_test COMMAND icom_usb_transport_test)
+
 add_executable(icom_audio_test
     tests/icom_audio_test.cpp
     src/core/backends/icom/IcomAudio.cpp

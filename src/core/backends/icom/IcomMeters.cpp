@@ -60,6 +60,15 @@ constexpr std::array<CurvePoint, 3> kComp{{
 constexpr std::array<CurvePoint, 3> kCompIc7300Mk2{{
     {0, 0.0}, {130, 15.0}, {210, 30.0},
 }};
+// IC-7300 Full Manual 12a, p.19-3: 0/143/213 correspond to
+// 0/50/100 percent of its 100 W rating. No extrapolated headroom.
+constexpr std::array<CurvePoint, 3> kPowerIc7300{{
+    {0, 0.0}, {143, 50.0}, {213, 100.0},
+}};
+// IC-7300 Full Manual 12a, p.19-3: the final COMP point is 241, not 210.
+constexpr std::array<CurvePoint, 3> kCompIc7300{{
+    {0, 0.0}, {130, 15.0}, {241, 30.0},
+}};
 
 // Vd (PA drain), raw -> volts. Icom's guide: 0 = 0 V, 75 = 5 V, 241 = 16 V.
 constexpr std::array<CurvePoint, 3> kVd{{
@@ -187,6 +196,8 @@ powerCurveForCalibration(MeterCalibration calibration)
     case MeterCalibration::Uncalibrated:
     case MeterCalibration::Ic9700:
         return {};
+    case MeterCalibration::Ic7300:
+        return kPowerIc7300;
     }
     return {};
 }
@@ -194,6 +205,7 @@ powerCurveForCalibration(MeterCalibration calibration)
 bool hasVoltageCalibration(MeterCalibration calibration) noexcept
 {
     return calibration == MeterCalibration::Ic705
+        || calibration == MeterCalibration::Ic7300
         || calibration == MeterCalibration::Ic9700
         || calibration == MeterCalibration::Ic7300Mk2;
 }
@@ -201,6 +213,7 @@ bool hasVoltageCalibration(MeterCalibration calibration) noexcept
 bool hasCurrentCalibration(MeterCalibration calibration) noexcept
 {
     return calibration == MeterCalibration::Ic705
+        || calibration == MeterCalibration::Ic7300
         || calibration == MeterCalibration::Ic9700
         || calibration == MeterCalibration::Ic7300Mk2;
 }
@@ -249,6 +262,9 @@ double meterValue(MeterId id, int raw, double s9Dbm, MeterCalibration calibratio
     case MeterId::Swr:      return interpolateCurve(kSwr, raw);
     case MeterId::Alc:      return interpolateCurve(kAlc, raw);
     case MeterId::Comp:
+        if (calibration == MeterCalibration::Ic7300) {
+            return interpolateCurve(kCompIc7300, raw);
+        }
         return calibration == MeterCalibration::Ic7300Mk2
             ? interpolateCurve(kCompIc7300Mk2, raw) : interpolateCurve(kComp, raw);
     case MeterId::Vd:
@@ -261,6 +277,7 @@ double meterValue(MeterId id, int raw, double s9Dbm, MeterCalibration calibratio
         case MeterCalibration::Ic9700:
             return interpolateCurve(kVdIc9700, raw);
         case MeterCalibration::Ic7300Mk2:
+        case MeterCalibration::Ic7300:
             return interpolateCurve(kVdIc7300Mk2, raw);
         case MeterCalibration::Uncalibrated:
             return 0.0;
@@ -276,6 +293,7 @@ double meterValue(MeterId id, int raw, double s9Dbm, MeterCalibration calibratio
         case MeterCalibration::Ic9700:
             return interpolateCurve(kIdIc9700, raw);
         case MeterCalibration::Ic7300Mk2:
+        case MeterCalibration::Ic7300:
             return interpolateCurve(kIdIc7300Mk2, raw);
         case MeterCalibration::Uncalibrated:
             return 0.0;

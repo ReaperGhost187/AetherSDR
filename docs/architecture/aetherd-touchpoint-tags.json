@@ -1492,5 +1492,11 @@
   "note": "How many receiver letters (A, B, C, ...) the UI offers — the RX applet's slice tabs and the CAT applet's VFO targets — tracked from the connection/capability/slice edges. Family-agnostic: the backend's declared ceiling, floored by the slots live receivers occupy (#5775, #5776).",
   "split": "",
   "confidence": "high"
+ },
+ "core/backends/icom/IcomUsbTransport.h": {
+  "tag": "vendor(icom)",
+  "note": "Local USB CI-V and explicitly selected radio audio behind IRadioBackend; authorization remains with TxCoordinator.",
+  "split": "",
+  "confidence": "high"
  }
 }

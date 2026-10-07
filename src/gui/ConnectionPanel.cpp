@@ -1,4 +1,9 @@
 #include "ConnectionPanel.h"
+#include <QAudioDevice>
+#include <QMediaDevices>
+#ifdef HAVE_SERIALPORT
+#include <QSerialPortInfo>
+#endif
 #include "core/AppSettings.h"
 #include "core/backends/ConnectionSharingPolicy.h"  // in-use share gate (#4448), shared with MainWindow_Session
 #include "core/backends/anan/AnanDiscovery.h" // shared nickname + MAC->serial helpers
@@ -696,7 +701,7 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     m_manualRadioTypeCombo->addItem(tr("FlexRadio"), QString::fromLatin1(kFamilyFlex));
     m_manualRadioTypeCombo->addItem(tr("Hermes-Lite 2"), QString::fromLatin1(kFamilyHl2));
     m_manualRadioTypeCombo->addItem(tr("ANAN-G2"), QString::fromLatin1(kFamilyAnan));
-    m_manualRadioTypeCombo->addItem(tr("Icom (network)"), QString::fromLatin1(kFamilyIcom));
+    m_manualRadioTypeCombo->addItem(tr("Icom (USB / network)"), QString::fromLatin1(kFamilyIcom));
 #ifdef AETHER_BACKEND_RTL
     m_manualRadioTypeCombo->addItem(tr("RTL-SDR (USB)"), QString::fromLatin1(kFamilyRtl));
 #endif
@@ -724,7 +729,43 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     // address sat visibly below the centre of its own field — and below the
     // Radio type text in the row above it. The row's height is the combo's
     // to set (addManualRow does), and the editor fills what it is given.
-    addManualRow(QStringLiteral("Radio IP:"), m_manualIpCombo);
+    m_manualIpRow = addManualRow(QStringLiteral("Radio IP:"), m_manualIpCombo);
+
+    m_manualIcomTransportCombo = new QComboBox(manualGroup);
+    m_manualIcomTransportCombo->setObjectName(QStringLiteral("connectionIcomTransport"));
+    m_manualIcomTransportCombo->setAccessibleName(tr("Icom connection"));
+    m_manualIcomTransportCombo->addItem(tr("Network"), QStringLiteral("network"));
+    m_manualIcomTransportCombo->addItem(tr("USB"), QStringLiteral("usb"));
+    AetherSDR::applyComboStyle(m_manualIcomTransportCombo, comboExtraRules);
+    m_manualIcomTransportRow = addManualRow(tr("Connection:"), m_manualIcomTransportCombo);
+
+    const auto usbCombo = [&](const QString& name, const QString& label) {
+        auto* combo = new QComboBox(manualGroup);
+        combo->setObjectName(name);
+        combo->setAccessibleName(label);
+        AetherSDR::applyComboStyle(combo, comboExtraRules);
+        return combo;
+    };
+    m_manualIcomUsbPortCombo = usbCombo(QStringLiteral("connectionIcomUsbPort"), tr("Radio USB CI-V port"));
+    m_manualIcomUsbPortCombo->setAccessibleDescription(tr("Select the COM or serial port belonging to this radio. CI-V USB must be unlinked and set to 115200 baud."));
+    m_manualIcomUsbPortRow = addManualRow(tr("USB port:"), m_manualIcomUsbPortCombo);
+    m_manualIcomUsbInputCombo = usbCombo(QStringLiteral("connectionIcomUsbInput"), tr("Radio USB receive audio"));
+    m_manualIcomUsbInputCombo->setAccessibleDescription(tr("Select the radio's USB sound input, not the computer microphone."));
+    m_manualIcomUsbInputRow = addManualRow(tr("Receive audio:"), m_manualIcomUsbInputCombo);
+    m_manualIcomUsbOutputCombo = usbCombo(QStringLiteral("connectionIcomUsbOutput"), tr("Radio USB transmit audio"));
+    m_manualIcomUsbOutputCombo->setAccessibleDescription(tr("Select the same radio's USB sound output, not the computer speakers."));
+    m_manualIcomUsbOutputRow = addManualRow(tr("Transmit audio:"), m_manualIcomUsbOutputCombo);
+    auto* usbRefresh = new QPushButton(tr("Refresh USB devices"), manualGroup);
+    usbRefresh->setAccessibleName(tr("Refresh USB devices"));
+    m_manualIcomUsbRefreshRow = addManualRow(QString(), usbRefresh);
+    connect(usbRefresh, &QPushButton::clicked, this, &ConnectionPanel::refreshIcomUsbDevices);
+    refreshIcomUsbDevices();
+    connect(m_manualIcomTransportCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this](int) { updateManualFamilyHints(); updateActionState(); });
+    for (QComboBox* combo : {m_manualIcomUsbPortCombo, m_manualIcomUsbInputCombo, m_manualIcomUsbOutputCombo}) {
+        connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+                [this](int) { updateActionState(); });
+    }
 
     // Icom credentials. Hidden for every other family — see
     // updateManualFamilyHints(). An Icom will not answer the RS-BA1 handshake
@@ -1298,6 +1339,27 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     updateLocalPageState();
     updateSmartLinkUi();
     updateManualAdvancedVisibility();
+    // Saved USB endpoints use the same last-radio preference and connect path
+    // as directed discoveries. Do not open a port merely while listing devices.
+    QTimer::singleShot(500, this, [this] {
+        const QString savedPort = IcomSettings::usbPort();
+        const QString lastSerial = AppSettings::instance().value("LastConnectedRadioSerial").toString();
+        if (savedPort.isEmpty() || lastSerial != QStringLiteral("icom-usb:%1").arg(savedPort)
+            || !m_autoConnectCheck->isChecked() || m_connected || m_manualConnectPending) {
+            return;
+        }
+        setManualFamily(QString::fromLatin1(kFamilyIcom));
+        m_manualIcomTransportCombo->setCurrentIndex(1);
+        refreshIcomUsbDevices();
+        if (m_manualIcomUsbPortCombo->currentData().toString().isEmpty()
+            || m_manualIcomUsbInputCombo->currentData().toByteArray().isEmpty()
+            || m_manualIcomUsbOutputCombo->currentData().toByteArray().isEmpty()) {
+            m_startupProbe = true;
+            reportStartupProbeFailure(tr("The saved USB radio is unavailable. Check its cable, power, and selected devices."));
+            return;
+        }
+        connectIcomUsb(true);
+    });
     FramelessResizer::install(this);
     setFramelessMode(
         AppSettings::instance().value("FramelessWindow", "True").toString() == "True");
@@ -1861,7 +1923,11 @@ void ConnectionPanel::updateActionState()
         && remoteClientsAvailable;
     m_wanDisconnectClientsBtn->setEnabled(smartLinkDisconnectReady);
 
-    const bool manualReady = !m_connected && !m_manualIpEdit->text().trimmed().isEmpty();
+    const bool manualReady = !m_connected && (isIcomUsbSelected()
+        ? !m_manualIcomUsbPortCombo->currentData().toString().isEmpty()
+            && !m_manualIcomUsbInputCombo->currentData().toByteArray().isEmpty()
+            && !m_manualIcomUsbOutputCombo->currentData().toByteArray().isEmpty()
+        : !m_manualIpEdit->text().trimmed().isEmpty());
     m_manualConnectBtn->setEnabled(manualReady);
 }
 
@@ -2441,7 +2507,7 @@ void ConnectionPanel::populateIcomCivCombo()
         // (serial or an RS-BA1 server front end); those stay reachable via
         // `Custom...`, where name auto-detect cannot help because the handshake
         // names the server, not the radio.
-        if (!model.hasNetwork)
+        if (!model.hasNetwork && !isIcomUsbSelected())
             continue;
         const QString name = QString::fromUtf8(model.name.data(),
                                                static_cast<int>(model.name.size()));
@@ -2507,7 +2573,7 @@ void ConnectionPanel::syncIcomPortCustomRow()
     const bool icom = currentManualFamily() == QLatin1String(kFamilyIcom);
     const bool custom =
         m_manualIcomPortCombo->currentData().toString() == QLatin1String("__custom__");
-    m_manualIcomPortCustomRow->setVisible(icom && custom);
+    m_manualIcomPortCustomRow->setVisible(icom && custom && !isIcomUsbSelected());
 }
 
 quint16 ConnectionPanel::selectedIcomBasePort() const
@@ -2526,16 +2592,27 @@ void ConnectionPanel::updateManualFamilyHints()
     const bool hl2  = family == QLatin1String(kFamilyHl2);
     const bool anan = family == QLatin1String(kFamilyAnan);
     const bool icom = family == QLatin1String(kFamilyIcom);
+    if (m_manualIcomTransportRow) { m_manualIcomTransportRow->setVisible(icom); }
+    const bool usb = isIcomUsbSelected();
+    if (m_manualIpRow) { m_manualIpRow->setVisible(!usb); }
+    for (QWidget* row : {m_manualIcomUsbPortRow, m_manualIcomUsbInputRow,
+                         m_manualIcomUsbOutputRow, m_manualIcomUsbRefreshRow}) {
+        if (row) { row->setVisible(usb); }
+    }
+    if (m_manualConnectBtn) {
+        m_manualConnectBtn->setText(usb ? tr("Connect by USB") : tr("Connect by IP"));
+        m_manualConnectBtn->setAccessibleName(m_manualConnectBtn->text());
+    }
 
     // The credentials and network selectors belong to Icom alone. Hiding the
     // row CONTAINERS rather than the fields keeps their labels from being left
     // behind.
     if (m_manualIcomUserRow)
-        m_manualIcomUserRow->setVisible(icom);
+        m_manualIcomUserRow->setVisible(icom && !usb);
     if (m_manualIcomPassRow)
-        m_manualIcomPassRow->setVisible(icom);
+        m_manualIcomPassRow->setVisible(icom && !usb);
     if (m_manualIcomPortRow) {
-        m_manualIcomPortRow->setVisible(icom);
+        m_manualIcomPortRow->setVisible(icom && !usb);
     }
     if (m_manualIcomCivRow)
         m_manualIcomCivRow->setVisible(icom);
@@ -2580,7 +2657,7 @@ void ConnectionPanel::updateManualFamilyHints()
             populateIcomCivCombo();
         if (m_manualIpEdit && m_manualIpEdit->text().isEmpty())
             m_manualIpEdit->setText(IcomSettings::lastHost());
-        if (m_manualIcomPassEdit && m_manualIcomPassEdit->text().isEmpty()) {
+        if (!usb && m_manualIcomPassEdit && m_manualIcomPassEdit->text().isEmpty()) {
             QPointer<QLineEdit> field(m_manualIcomPassEdit);
             IcomCredentials::load(this, [field](const QString& password) {
                 if (field && field->text().isEmpty())
@@ -2598,7 +2675,7 @@ void ConnectionPanel::updateManualFamilyHints()
                   "This build has no QtKeychain support, so the password is kept for this "
                   "session only.");
         m_manualHintLabel->setText(
-            icom
+            usb ? tr("Connect the radio by USB. Set CI-V USB Port to Unlink from REMOTE and CI-V USB Baud Rate to 115200. Select its serial port and both USB Audio CODEC devices. USB SEND and USB keying must be OFF; AetherSDR uses CI-V PTT. Set USB output to AF and DATA MOD to USB.") : icom
                 ? QStringLiteral(
                       "Enter the radio address and the network user name and password "
                       "configured for network control. Standard UDP ports are used unless "
@@ -2714,6 +2791,11 @@ void ConnectionPanel::onManualIpChanged(const QString& ip)
 
 void ConnectionPanel::onManualConnectClicked()
 {
+    if (m_connected) { return; }
+    if (isIcomUsbSelected()) {
+        connectIcomUsb();
+        return;
+    }
     const QString ip = m_manualIpEdit->text().trimmed();
     if (m_connected || ip.isEmpty())
         return;
@@ -2722,6 +2804,112 @@ void ConnectionPanel::onManualConnectClicked()
     m_startupProbe = false;
     setManualMessage(QStringLiteral("Checking %1…").arg(ip));
     probeRadio(ip);
+}
+
+bool ConnectionPanel::isIcomUsbSelected() const
+{
+    return m_manualIcomTransportRow && !m_manualIcomTransportRow->isHidden()
+        && m_manualIcomTransportCombo
+        && m_manualIcomTransportCombo->currentData().toString() == QLatin1String("usb");
+}
+
+void ConnectionPanel::refreshIcomUsbDevices()
+{
+    const QString port = m_manualIcomUsbPortCombo->currentData().toString().isEmpty()
+        ? IcomSettings::usbPort() : m_manualIcomUsbPortCombo->currentData().toString();
+    const QByteArray input = m_manualIcomUsbInputCombo->currentData().toByteArray().isEmpty()
+        ? IcomSettings::usbInputDeviceId() : m_manualIcomUsbInputCombo->currentData().toByteArray();
+    const QByteArray output = m_manualIcomUsbOutputCombo->currentData().toByteArray().isEmpty()
+        ? IcomSettings::usbOutputDeviceId() : m_manualIcomUsbOutputCombo->currentData().toByteArray();
+    const QSignalBlocker portBlocker(m_manualIcomUsbPortCombo);
+    const QSignalBlocker inputBlocker(m_manualIcomUsbInputCombo);
+    const QSignalBlocker outputBlocker(m_manualIcomUsbOutputCombo);
+    m_manualIcomUsbPortCombo->clear();
+    m_manualIcomUsbPortCombo->addItem(tr("Select the radio's USB CI-V port"), QString());
+#ifdef HAVE_SERIALPORT
+    for (const QSerialPortInfo& info : QSerialPortInfo::availablePorts()) {
+        m_manualIcomUsbPortCombo->addItem(QStringLiteral("%1 — %2")
+            .arg(info.portName(), info.description()), info.portName());
+    }
+#endif
+    const auto populateAudio = [this](QComboBox* combo, const QList<QAudioDevice>& devices,
+                                     const QByteArray& selected) {
+        combo->clear();
+        combo->addItem(tr("Select this radio's USB Audio CODEC"), QByteArray());
+        int index = 1;
+        for (const QAudioDevice& device : devices) {
+            // The ordinal distinguishes identical USB Audio CODEC labels;
+            // persistence and lookup always use the actual device ID.
+            combo->addItem(QStringLiteral("%1 (%2)").arg(device.description()).arg(index++), device.id());
+        }
+        combo->setCurrentIndex(std::max(0, combo->findData(selected)));
+    };
+    populateAudio(m_manualIcomUsbInputCombo, QMediaDevices::audioInputs(), input);
+    populateAudio(m_manualIcomUsbOutputCombo, QMediaDevices::audioOutputs(), output);
+    m_manualIcomUsbPortCombo->setCurrentIndex(std::max(0, m_manualIcomUsbPortCombo->findData(port)));
+    if (m_manualConnectBtn) { updateActionState(); }
+}
+
+void ConnectionPanel::connectIcomUsb(bool startup)
+{
+    const QString port = m_manualIcomUsbPortCombo->currentData().toString();
+    const QByteArray input = m_manualIcomUsbInputCombo->currentData().toByteArray();
+    const QByteArray output = m_manualIcomUsbOutputCombo->currentData().toByteArray();
+    if (port.isEmpty() || input.isEmpty() || output.isEmpty()) {
+        setManualMessage(tr("Select the radio USB port and both radio sound devices."), true);
+        return;
+    }
+    const QString selection = m_manualIcomCivCombo->currentData().toString();
+    QVariantMap params{{QStringLiteral("icom.transport"), QStringLiteral("usb")},
+                       {QStringLiteral("icom.usbPort"), port},
+                       {QStringLiteral("icom.usbInputDeviceId"), input},
+                       {QStringLiteral("icom.usbOutputDeviceId"), output},
+                       {QStringLiteral("icom.wakeOnConnect"), false}};
+    // Auto explicitly overrides the family-wide network destination retained
+    // by RadioModel; a model name still never grants hardware capabilities.
+    params.insert(QStringLiteral("icom.civAddress"), 0);
+    params.insert(QStringLiteral("icom.civAddressPinned"), false);
+    if (selection != QLatin1String("__auto__")) {
+        const QString hex = selection == QLatin1String("__custom__")
+            ? m_manualIcomCivEdit->text().trimmed() : selection;
+        bool valid = false;
+        const uint address = hex.toUInt(&valid, 16);
+        if (!valid || address == 0 || address >= 0xE0) {
+            setManualMessage(tr("Enter a CI-V address from 01 to DF in hexadecimal."), true);
+            return;
+        }
+        params.insert(QStringLiteral("icom.civAddress"), address);
+        params.insert(QStringLiteral("icom.civAddressPinned"), selection == QLatin1String("__custom__"));
+    }
+#ifdef HAVE_SERIALPORT
+    for (const QSerialPortInfo& candidate : QSerialPortInfo::availablePorts()) {
+        if (candidate.portName() == port) {
+            params.insert(QStringLiteral("icom.usbSerialNumber"), candidate.serialNumber());
+            break;
+        }
+    }
+#endif
+    if (selection == QLatin1String("__auto__")) {
+        IcomSettings::setCivAddressAuto();
+    } else if (selection == QLatin1String("__custom__")) {
+        IcomSettings::setCivAddress(static_cast<std::uint8_t>(params.value(QStringLiteral("icom.civAddress")).toUInt()));
+    } else {
+        IcomSettings::setCivAddressFromModel(static_cast<std::uint8_t>(params.value(QStringLiteral("icom.civAddress")).toUInt()));
+    }
+    IcomSettings::setUsbConnection(port, input, output);
+    RadioInfo info;
+    info.family = QString::fromLatin1(kFamilyIcom);
+    info.model = QStringLiteral("Icom USB");
+    info.name = QStringLiteral("Icom USB (%1)").arg(port);
+    info.nickname = info.name;
+    info.serial = QStringLiteral("icom-usb:%1").arg(port);
+    info.port = 0;
+    info.connectionParams = params;
+    m_manualConnectPending = true;
+    m_startupProbe = false;
+    clearPendingIcomCredentials();
+    setManualMessage(tr("Opening %1…").arg(port));
+    finishManualProbe(info, startup);
 }
 
 void ConnectionPanel::onManualAdvancedToggled(bool checked)
@@ -3082,7 +3270,7 @@ void ConnectionPanel::refitToContent()
 void ConnectionPanel::resetManualConnectButton()
 {
     m_manualConnectPending = false;
-    m_manualConnectBtn->setText(QStringLiteral("Connect by IP"));
+    m_manualConnectBtn->setText(isIcomUsbSelected() ? tr("Connect by USB") : tr("Connect by IP"));
     m_manualConnectBtn->setEnabled(true);
     updateActionState();
 }

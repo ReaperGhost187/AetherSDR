@@ -121,6 +121,8 @@ struct FmRepeaterProfile {
     bool hasDtcs = false;
     bool hasXfc = false;
     bool hasTxFrequencyReadback = false;
+    // Original IC-7300 uses independent 16 42/43, not the 16 5D selector.
+    bool separateCtcssFunctions = false;
 };
 
 // Empty when this model's own official CI-V guide has not been checked. A
@@ -282,6 +284,7 @@ enum class IcomFeature : std::uint8_t {
 };
 
 enum class MemoryDialect : std::uint8_t {
+    Ic7300,
     Ic705,
     Ic7300Mk2,
     Ic9700,

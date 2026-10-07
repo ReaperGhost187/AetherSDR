@@ -9,6 +9,7 @@
 #include <QMap>
 #include <QString>
 #include <QHostAddress>
+#include <QVariantMap>
 
 namespace AetherSDR {
 
@@ -93,6 +94,9 @@ struct RadioInfo {
     QString bands;
     RadioBindSettings bindSettings;
     QHostAddress sessionBindAddress;
+    // Connection-only parameters for transports without a network endpoint.
+    // Retained with the observation for reconnect; never radio live state.
+    QVariantMap connectionParams;
 
     // Connected GUI client info (from discovery broadcast)
     QStringList guiClientStations;

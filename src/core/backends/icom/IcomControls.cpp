@@ -540,6 +540,10 @@ std::span<const ControlSpec> controlSpecs() { return kSpecs; }
 bool controlSupported(const IcomModel& model, const IcomModelProfile& profile,
                       const ControlSpec& spec) noexcept
 {
+    if (spec.id == "repeater.access.ctcss" && profile.fmRepeater
+        && profile.fmRepeater->separateCtcssFunctions) {
+        return false; // This profile uses the independent 16 42/43 controls.
+    }
     if (spec.requiredFeature == IcomFeature::Scope) {
         // Scope startup and status handling have always followed identity
         // geometry. Keep the registry aligned with that real wire behavior;

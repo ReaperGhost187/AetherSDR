@@ -112,6 +112,7 @@ struct MeterSpec {
 [[nodiscard]] const MeterSpec* meterSpecForSub(std::uint8_t sub);
 
 enum class MeterCalibration : std::uint8_t {
+    Ic7300,
     Uncalibrated,
     Ic705,
     Ic9700,

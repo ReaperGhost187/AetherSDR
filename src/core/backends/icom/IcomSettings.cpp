@@ -72,6 +72,34 @@ bool IcomSettings::wakeOnConnect()
     return readObj().value(QStringLiteral("wakeOnConnect")).toBool(false);
 }
 
+QString IcomSettings::usbPort()
+{
+    return readObj().value(QStringLiteral("usb")).toObject().value(QStringLiteral("port")).toString();
+}
+
+QByteArray IcomSettings::usbInputDeviceId()
+{
+    return QByteArray::fromHex(readObj().value(QStringLiteral("usb")).toObject()
+        .value(QStringLiteral("inputDeviceId")).toString().toLatin1());
+}
+
+QByteArray IcomSettings::usbOutputDeviceId()
+{
+    return QByteArray::fromHex(readObj().value(QStringLiteral("usb")).toObject()
+        .value(QStringLiteral("outputDeviceId")).toString().toLatin1());
+}
+
+void IcomSettings::setUsbConnection(const QString& port, const QByteArray& input,
+                                    const QByteArray& output)
+{
+    QJsonObject object = readObj();
+    object.insert(QStringLiteral("usb"), QJsonObject{
+        {QStringLiteral("port"), port},
+        {QStringLiteral("inputDeviceId"), QString::fromLatin1(input.toHex())},
+        {QStringLiteral("outputDeviceId"), QString::fromLatin1(output.toHex())}});
+    writeObj(object);
+}
+
 void IcomSettings::setWakeOnConnect(bool enabled)
 {
     QJsonObject object = readObj();

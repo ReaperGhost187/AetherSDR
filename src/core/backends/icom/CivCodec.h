@@ -258,6 +258,7 @@ inline constexpr std::uint8_t kNoiseBlanker  = 0x22;
 inline constexpr std::uint8_t kNoiseReduce   = 0x40;
 inline constexpr std::uint8_t kAutoNotch     = 0x41;
 inline constexpr std::uint8_t kRepeaterTone  = 0x42;
+inline constexpr std::uint8_t kToneSquelch = 0x43;
 inline constexpr std::uint8_t kRepeaterAccess = 0x5D;
 inline constexpr std::uint8_t kCompressor    = 0x44;
 inline constexpr std::uint8_t kMonitorFn     = 0x45;

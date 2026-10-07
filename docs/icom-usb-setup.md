@@ -65,10 +65,14 @@ New tests cover USB framing, echo filtering, PCM conversion, and distinct model
 profiles and memory layouts. Existing CI-V, scope, meter, memory, audio, and
 protocol tests are retained.
 
-The changed sources compile with MSVC and Qt 6.10, and the eight focused tests
-pass. The production project still requires Qt 6.12; a complete Qt 6.12 app build
-and real-radio USB certification remain outstanding. This is development
-support, not a claim of completed hardware certification.
+The complete Windows x64 application builds with MSVC and the production Qt
+6.12.0 toolkit. All eight focused Icom tests pass against that build. A portable
+payload audit resolves every dependency locally or through Windows, and a
+native GUI smoke test confirms startup, the USB port/audio controls, and the
+separate original IC-7300 and IC-9700 choices. Normal Windows release features,
+including NR4 and GPU/ONNX/sherpa speech support, are included. Real-radio USB
+verification remains outstanding; this is a development build for hardware
+testing, not a claim of completed hardware certification.
 
 For hardware validation, first confirm RX, tuning, front-panel reconciliation,
 scope, and memory import on each radio. Then verify the existing transmit
